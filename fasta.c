@@ -14,7 +14,6 @@ typedef enum
     fasta_state_name,
     fasta_state_lf1,
     fasta_state_seq,
-    fasta_state_lf2
 } fasta_state_t;
 
 int fasta_read(const char * filename, int (*callback)(fasta_item* item), void *callback_arg)
@@ -57,6 +56,7 @@ int fasta_read(const char * filename, int (*callback)(fasta_item* item), void *c
                 }
                 if (c == '\n') { 
                     state = fasta_state_seq;
+                    item.name_len = fasta_data + i - item.name;
                     item.seq = fasta_data + i + 1;
                     break;
                 }
@@ -70,26 +70,15 @@ int fasta_read(const char * filename, int (*callback)(fasta_item* item), void *c
                 fprintf(stderr, "fasta format invalid, expecting \\n");
                 return -2;
             case fasta_state_seq:
-//                while (c >= 32 && i < file_size - 1) { i++; c = fasta_data[i]; }
-                if (c == '\r') { 
-                    state = fasta_state_lf2;
+//                while (c != '>' && i < file_size - 1) { i++; c = fasta_data[i]; }
+                if (c == '>') { 
                     item.seq_len = fasta_data + i - item.seq;
-                    break;
-                }
-                if (c == '\n') { 
-                    state = fasta_state_gt;
                     callback(&item);
+                    state = fasta_state_name;
+                    item.name = fasta_data + i + 1;
                     break;
                 }
                 break;
-            case fasta_state_lf2:
-                if (c == '\n') {
-                    state = fasta_state_gt;
-                    callback(&item);
-                    break;
-                }
-                fprintf(stderr, "fasta format invalid, expecting \\n");
-                return -2;
         }
     }
 }

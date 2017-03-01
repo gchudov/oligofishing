@@ -14,7 +14,7 @@
 
 static const char *hooks_filename_s = "hooks.fasta";
 static const char *pond_filename_s = "pond.fasta";
-static long window_len = 24;
+static long window_len = 26;
 static uint32_t crc32_window_table_s[256];
 
 typedef struct hook_t hook;
@@ -40,7 +40,6 @@ static inline uint32_t crc32_sliding(uint32_t crc, uint8_t head, uint8_t tail)
 
 int parse_hook(fasta_item* item)
 {
-    if (item->seq_len != window_len) return 0;
 //    printf("%.*s: %.*s\n", item->name_len, item->name, item->seq_len, item->seq);
     if (!hook_table)
     {
@@ -53,8 +52,21 @@ int parse_hook(fasta_item* item)
         hook_alloc <<= 1;
         hook_table = realloc(hook_table, hook_alloc * sizeof(hook));
     }
-    hook_table[hook_count].crc = crc32_bytes(0, item->seq, item->seq_len);
-    hook_table[hook_count].seq_len = item->seq_len;
+    uint32_t crc = 0;
+    uint32_t len = 0;
+    for (int pos = 0; pos < item->seq_len; pos++)
+    {
+        uint8_t c = item->seq[pos];
+        if (c > 32)
+        {
+            crc = crc32_byte(crc, c);
+            len ++;
+        }
+    }
+    if (len != window_len) return 0;
+    hook_table[hook_count].crc = crc;
+    hook_table[hook_count].seq_len = len;
+//    printf("CRC=%x vs %x\n", crc, crc32_bytes(0, item->seq, len));
     hook_table[hook_count].seq = item->seq;
     hook_table[hook_count].name_len = item->name_len;
     hook_table[hook_count].name = item->name;
@@ -64,22 +76,45 @@ int parse_hook(fasta_item* item)
 
 int parse_pond(fasta_item* item)
 {
-    if (item->seq_len < window_len) return 0;
 //    printf("%.*s: %.*s\n", item->name_len, item->name, item->seq_len, item->seq);
-    uint8_t * ptr = item->seq;
-    uint8_t * end = item->seq + item->seq_len - window_len;
-    uint32_t crc = crc32_bytes(0, ptr, window_len);
+    uint32_t crc = 0;
+    uint32_t len = 0;
+    uint8_t buf[window_len];
+    uint8_t * next = item->seq;
+    uint8_t * last = item->seq + item->seq_len;
+    while (next < last && len < window_len)
+    {
+        uint8_t c = *(next++);
+        if (c > 32)
+        {
+            crc = crc32_byte(crc, c);
+            buf[len] = c;
+            len ++;
+        }
+    }
+    if (len < window_len) return 0;
+    // off - position of the first byte in circular buffer buf;
+    int off = 0;
     while (1)
     {
         for (hook* p = hook_hash[crc & hook_hash_mask]; p; p=p->next)
-            if (p->crc == crc && !memcmp(p->seq, ptr, window_len))
+            if (p->crc == crc && !memcmp(p->seq, buf + off, window_len - off) && !memcmp(p->seq + window_len - off, buf, off))
             {
-                printf("Match: hook %.*s (%.*s), fish %.*s (%.*s)\n", p->name_len, p->name, p->seq_len, p->seq, item->name_len, item->name, item->seq_len, item->seq);
+                // fprintf(stderr, "Match: hook %.*s (%.*s), fish %.*s (%.*s)\n", p->name_len, p->name, p->seq_len, p->seq, item->name_len, item->name, item->seq_len, item->seq);
+                printf(">%.*s\n%.*s", item->name_len, item->name, item->seq_len, item->seq);
                 return 0;
             }
-        if (ptr >= end) break;
-        crc = crc32_sliding(crc, ptr[window_len], ptr[0]);
-        ptr++;
+        if (next >= last) break;
+        uint8_t c = *(next++);
+        if (c <= 32) continue;
+
+        len++;
+
+        crc = crc32_sliding(crc, c, buf[off]);
+        buf[off] = c;
+        off++;
+//        if (crc32_bytes(crc32_bytes(0, buf + off, window_len - off), buf, off) != crc) abort();
+        if (off == window_len) off = 0;
     };
     return 0;
 }
@@ -122,7 +157,8 @@ int main(int argc, char**argv)
         hook_table[i].next = hook_hash[crc];
         hook_hash[crc] = &hook_table[i];
     }
-    printf("Built a hash table of size %d containing %d hooks of length %ld.\n", hook_hash_mask+1, hook_count, window_len);
+    if (!hook_count)
+        fprintf(stderr, "Built a hash table of size %d containing %d hooks of length %ld.\n", hook_hash_mask+1, hook_count, window_len);
 
     rc = fasta_read(pond_filename_s, parse_pond, NULL);
     if (rc < 0) return rc;
