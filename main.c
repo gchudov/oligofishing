@@ -41,6 +41,7 @@ static inline uint32_t crc32_sliding(uint32_t crc, uint8_t head, uint8_t tail)
 int parse_hook(fasta_item* item)
 {
     if (item->seq_len != window_len) return 0;
+//    printf("%.*s: %.*s\n", item->name_len, item->name, item->seq_len, item->seq);
     if (!hook_table)
     {
         hook_count = 0;
@@ -58,7 +59,6 @@ int parse_hook(fasta_item* item)
     hook_table[hook_count].name_len = item->name_len;
     hook_table[hook_count].name = item->name;
     hook_count++;
-    printf("%.*s: %.*s\n", item->name_len, item->name, item->seq_len, item->seq);
     return 0;
 }
 
@@ -112,7 +112,7 @@ int main(int argc, char**argv)
     int rc = fasta_read(hooks_filename_s, parse_hook, NULL);
     if (rc < 0) return rc;
 
-    while (hook_count > hook_hash_mask)
+    while (hook_count * 4 > hook_hash_mask)
         hook_hash_mask = (hook_hash_mask << 1) | 1;
     hook_hash = malloc(sizeof(hook*) * (hook_hash_mask + 1));
     memset(hook_hash, 0, sizeof(hook*) * (hook_hash_mask + 1));
