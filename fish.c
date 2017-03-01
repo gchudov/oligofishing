@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE
 #include "crc32.h"
 #include "fasta.h"
 #include <stdio.h>
@@ -8,8 +9,10 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <ctype.h>
 
-static const char *hooks_filename_s = "reads.fasta";
+static const char *hooks_filename_s = "hooks.fasta";
 static const char *pond_filename_s = "pond.fasta";
 static long window_len = 24;
 static uint32_t crc32_window_table_s[256];
@@ -83,6 +86,27 @@ int parse_pond(fasta_item* item)
 
 int main(int argc, char**argv)
 {
+    int c;
+    while ((c = getopt (argc, argv, "h:p:l:")) != -1)
+        switch (c)
+        {
+            case 'h':
+                hooks_filename_s = optarg;
+                break;
+            case 'p':
+                pond_filename_s = optarg;
+                break;
+            case 'l':
+                window_len = atoi(optarg);
+                break;
+            case '?':
+                fprintf (stderr,
+                    "Usage: %s -h \"%s\" -p \"%s\" -l %ld\n", argv[0], hooks_filename_s, pond_filename_s, window_len);
+                return 1;
+              default:
+                abort ();
+        }
+
     crc32_init();
     crc32_init_window(crc32_window_table_s, window_len);
     int rc = fasta_read(hooks_filename_s, parse_hook, NULL);
