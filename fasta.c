@@ -58,6 +58,9 @@ int fasta_read(const char * filename, int (*callback)(fasta_item* item), void *c
                     state = fasta_state_seq;
                     item.name_len = fasta_data + i - item.name;
                     item.seq = fasta_data + i + 1;
+                    item.seq_len = file_size - i - 1;
+                    callback(&item);
+                    i += item.seq_len;
                     break;
                 }
                 break;
@@ -65,6 +68,9 @@ int fasta_read(const char * filename, int (*callback)(fasta_item* item), void *c
                 if (c == '\n') {
                     state = fasta_state_seq;
                     item.seq = fasta_data + i + 1;
+                    item.seq_len = file_size - i - 1;
+                    callback(&item);
+                    i += item.seq_len;
                     break;
                 }
                 fprintf(stderr, "fasta format invalid, expecting \\n");
@@ -73,7 +79,7 @@ int fasta_read(const char * filename, int (*callback)(fasta_item* item), void *c
 //                while (c != '>' && i < file_size - 1) { i++; c = fasta_data[i]; }
                 if (c == '>') { 
                     item.seq_len = fasta_data + i - item.seq;
-                    callback(&item);
+//                    callback(&item);
                     state = fasta_state_name;
                     item.name = fasta_data + i + 1;
                     break;

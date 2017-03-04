@@ -57,6 +57,11 @@ int parse_hook(fasta_item* item)
     for (int pos = 0; pos < item->seq_len; pos++)
     {
         uint8_t c = item->seq[pos];
+        if (c == '>')
+        {
+            item->seq_len = pos;
+            break;
+        }
         if (c > 32)
         {
             crc = crc32_byte(crc, c);
@@ -76,45 +81,74 @@ int parse_hook(fasta_item* item)
 
 int parse_pond(fasta_item* item)
 {
-//    printf("%.*s: %.*s\n", item->name_len, item->name, item->seq_len, item->seq);
+    uint32_t buf_mask = 0;
+    while (buf_mask <= window_len)
+        buf_mask = 1 + (buf_mask << 1);
+    uint8_t buf[buf_mask + 1];
     uint32_t crc = 0;
-    uint32_t len = 0;
-    uint8_t buf[window_len];
+    // off_first - position of the first byte of the currently inspected sequence of length window_len in circular buffer buf;
+    uint32_t off_first = 0;
+    // off_first - position of the next byte after the currently inspected sequence of length window_len in circular buffer buf;
+    uint32_t off_next = 0;
     uint8_t * next = item->seq;
     uint8_t * last = item->seq + item->seq_len;
-    while (next < last && len < window_len)
+    while (next < last && off_next < window_len)
     {
         uint8_t c = *(next++);
+        if (c == '>')
+        {
+            last = next - 1;
+            item->seq_len = last - item->seq;
+            break;
+        }
         if (c > 32)
         {
             crc = crc32_byte(crc, c);
-            buf[len] = c;
-            len ++;
+            buf[off_next] = c;
+            off_next ++;
         }
     }
-    if (len < window_len) return 0;
-    // off - position of the first byte in circular buffer buf;
-    int off = 0;
+    if (off_next < window_len) return 0;
     while (1)
     {
         for (hook* p = hook_hash[crc & hook_hash_mask]; p; p=p->next)
-            if (p->crc == crc && !memcmp(p->seq, buf + off, window_len - off) && !memcmp(p->seq + window_len - off, buf, off))
+            if (p->crc == crc)
             {
-                // fprintf(stderr, "Match: hook %.*s (%.*s), fish %.*s (%.*s)\n", p->name_len, p->name, p->seq_len, p->seq, item->name_len, item->name, item->seq_len, item->seq);
-                printf(">%.*s\n%.*s", item->name_len, item->name, item->seq_len, item->seq);
+                int seg_len = (off_next & buf_mask) > (off_first & buf_mask) ?
+                    window_len : buf_mask + 1 - (off_first & buf_mask);
+                if (memcmp(p->seq, buf + (off_first & buf_mask), seg_len) || memcmp(p->seq + seg_len, buf, window_len - seg_len))
+                    break;
+                while (next < last)
+                {
+                    uint8_t c = *(next++);
+                    if (c == '>')
+                    {
+                        last = next - 1;
+                        item->seq_len = last - item->seq;
+                        break;
+                    }
+                    if (c > 32) off_next++;
+                }
+#if 0
+                fprintf(stderr, "Match: hook %.*s (%.*s), fish %.*s (%.*s)\n", 
+                    p->name_len, p->name, p->seq_len, p->seq, 
+                    item->name_len, item->name, item->seq_len, item->seq);
+#endif
+                printf(">%.*s (matched %.*s)\n%.*s", item->name_len, item->name, p->name_len, p->name, item->seq_len, item->seq);
                 return 0;
             }
         if (next >= last) break;
         uint8_t c = *(next++);
+        if (c == '>')
+        {
+            last = next - 1;
+            item->seq_len = last - item->seq;
+            break;
+        }
         if (c <= 32) continue;
-
-        len++;
-
-        crc = crc32_sliding(crc, c, buf[off]);
-        buf[off] = c;
-        off++;
-//        if (crc32_bytes(crc32_bytes(0, buf + off, window_len - off), buf, off) != crc) abort();
-        if (off == window_len) off = 0;
+        uint8_t tail = buf[(off_first++) & buf_mask];
+        buf[(off_next++) & buf_mask] = c;
+        crc = crc32_sliding(crc, c, tail);
     };
     return 0;
 }
