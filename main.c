@@ -14,8 +14,10 @@
 
 static const char *hooks_filename_s = "hooks.fasta";
 static const char *pond_filename_s = "pond.fasta";
-static long window_len = 26;
-static uint32_t crc32_window_table_s[256];
+static uint32_t min_window_len = 0xffffffff;
+static uint32_t max_window_len = 0;
+typedef uint32_t crc32_window_table_t[256];
+static crc32_window_table_t* crc32_window_table_s;
 
 typedef struct hook_t hook;
 struct hook_t
@@ -33,9 +35,9 @@ static int hook_count = 0;
 static hook** hook_hash = NULL;
 static int hook_hash_mask = 0;
 
-static inline uint32_t crc32_sliding(uint32_t crc, uint8_t head, uint8_t tail)
+static inline uint32_t crc32_sliding(uint32_t crc, uint32_t wnd, uint8_t head, uint8_t tail)
 {
-    return crc32_byte(crc, head) ^ crc32_window_table_s[tail];
+    return crc32_byte(crc, head) ^ crc32_window_table_s[wnd][tail];
 }
 
 int parse_hook(fasta_item* item)
@@ -68,7 +70,8 @@ int parse_hook(fasta_item* item)
             len ++;
         }
     }
-    if (len != window_len) return 0;
+    if (min_window_len > len) min_window_len = len;
+    if (max_window_len < len) max_window_len = len;
     hook_table[hook_count].crc = crc;
     hook_table[hook_count].seq_len = len;
 //    printf("CRC=%x vs %x\n", crc, crc32_bytes(0, item->seq, len));
@@ -82,41 +85,42 @@ int parse_hook(fasta_item* item)
 int parse_pond(fasta_item* item)
 {
     uint32_t buf_mask = 0;
-    while (buf_mask <= window_len)
+    while (buf_mask <= max_window_len + 1)
         buf_mask = 1 + (buf_mask << 1);
     uint8_t buf[buf_mask + 1];
-    uint32_t crc = 0;
-    // off_first - position of the first byte of the currently inspected sequence of length window_len in circular buffer buf;
-    uint32_t off_first = 0;
-    // off_first - position of the next byte after the currently inspected sequence of length window_len in circular buffer buf;
+    uint32_t crc[max_window_len + 1];
+    memset(crc, 0, (max_window_len + 1) * sizeof(crc[0]));
+    // off_next - position of the next byte of sequence in circular buffer buf;
     uint32_t off_next = 0;
     uint8_t * next = item->seq;
     uint8_t * last = item->seq + item->seq_len;
-    while (next < last && off_next < window_len)
+    buf[buf_mask] = 0;
+    while (next < last)
     {
         uint8_t c = *(next++);
+        if (c <= 32) continue;
         if (c == '>')
         {
             last = next - 1;
             item->seq_len = last - item->seq;
             break;
         }
-        if (c > 32)
+        buf[(off_next++) & buf_mask] = c;
+        for (int wnd = min_window_len; wnd <= max_window_len; wnd++)
         {
-            crc = crc32_byte(crc, c);
-            buf[off_next] = c;
-            off_next ++;
-        }
-    }
-    if (off_next < window_len) return 0;
-    while (1)
-    {
-        for (hook* p = hook_hash[crc & hook_hash_mask]; p; p=p->next)
-            if (p->crc == crc)
+            if (off_next < wnd)
             {
-                int seg_len = (off_next & buf_mask) > (off_first & buf_mask) ?
-                    window_len : buf_mask + 1 - (off_first & buf_mask);
-                if (memcmp(p->seq, buf + (off_first & buf_mask), seg_len) || memcmp(p->seq + seg_len, buf, window_len - seg_len))
+                crc[wnd] = crc32_byte(crc[wnd], c);
+                continue;
+            }
+            uint8_t tail = buf[(off_next - 1 - wnd) & buf_mask];
+            uint32_t crc_wnd = crc[wnd] = crc32_sliding(crc[wnd], wnd, c, tail);
+            for (hook* p = hook_hash[crc_wnd & hook_hash_mask]; p; p=p->next)
+            {
+                if (p->crc != crc_wnd || p->seq_len != wnd) continue;
+                int part_len = (off_next & buf_mask) > ((off_next - wnd) & buf_mask) ?
+                    wnd : buf_mask + 1 - ((off_next - wnd) & buf_mask);
+                if (memcmp(p->seq, buf + ((off_next - wnd) & buf_mask), part_len) || memcmp(p->seq + part_len, buf, wnd - part_len))
                     break;
                 while (next < last)
                 {
@@ -137,18 +141,7 @@ int parse_pond(fasta_item* item)
                 printf(">%.*s (matched %.*s)\n%.*s", item->name_len, item->name, p->name_len, p->name, item->seq_len, item->seq);
                 return 0;
             }
-        if (next >= last) break;
-        uint8_t c = *(next++);
-        if (c == '>')
-        {
-            last = next - 1;
-            item->seq_len = last - item->seq;
-            break;
         }
-        if (c <= 32) continue;
-        uint8_t tail = buf[(off_first++) & buf_mask];
-        buf[(off_next++) & buf_mask] = c;
-        crc = crc32_sliding(crc, c, tail);
     };
     return 0;
 }
@@ -156,7 +149,7 @@ int parse_pond(fasta_item* item)
 int main(int argc, char**argv)
 {
     int c;
-    while ((c = getopt (argc, argv, "h:p:l:")) != -1)
+    while ((c = getopt (argc, argv, "h:p:")) != -1)
         switch (c)
         {
             case 'h':
@@ -165,21 +158,21 @@ int main(int argc, char**argv)
             case 'p':
                 pond_filename_s = optarg;
                 break;
-            case 'l':
-                window_len = atoi(optarg);
-                break;
             case '?':
                 fprintf (stderr,
-                    "Usage: %s -h \"%s\" -p \"%s\" -l %ld\n", argv[0], hooks_filename_s, pond_filename_s, window_len);
+                    "Usage: %s -h \"%s\" -p \"%s\"\n", argv[0], hooks_filename_s, pond_filename_s);
                 return 1;
               default:
                 abort ();
         }
 
     crc32_init();
-    crc32_init_window(crc32_window_table_s, window_len);
     int rc = fasta_read(hooks_filename_s, parse_hook, NULL);
     if (rc < 0) return rc;
+
+    crc32_window_table_s = malloc(sizeof(crc32_window_table_t) * (max_window_len + 1));
+    for (int wnd = min_window_len; wnd <= max_window_len; wnd++)
+        crc32_init_window(crc32_window_table_s[wnd], wnd);
 
     while (hook_count * 4 > hook_hash_mask)
         hook_hash_mask = (hook_hash_mask << 1) | 1;
@@ -192,7 +185,10 @@ int main(int argc, char**argv)
         hook_hash[crc] = &hook_table[i];
     }
     if (!hook_count)
-        fprintf(stderr, "Built a hash table of size %d containing %d hooks of length %ld.\n", hook_hash_mask+1, hook_count, window_len);
+    {
+        fprintf(stderr, "Built a hash table of size %d containing %d hooks of length %d..%d.\n", hook_hash_mask+1, hook_count, min_window_len, max_window_len);
+        return 0;
+    }
 
     rc = fasta_read(pond_filename_s, parse_pond, NULL);
     if (rc < 0) return rc;
