@@ -138,7 +138,7 @@ int parse_pond(fasta_item* item)
                     p->name_len, p->name, p->seq_len, p->seq, 
                     item->name_len, item->name, item->seq_len, item->seq);
 #endif
-                printf(">%.*s (matched %.*s)\n%.*s", item->name_len, item->name, p->name_len, p->name, item->seq_len, item->seq);
+                printf(">%.*s|%.*s\n%.*s", item->name_len, item->name, p->name_len, p->name, item->seq_len, item->seq);
                 return 0;
             }
         }
