@@ -12,7 +12,7 @@ The best application of oligofishing script is to match large number of short ol
 It is advised to do matching against a set of relatively short sequences (100bp - 1000bp) as script will not output the matching region of the sequence but only its name.  
 
 1.INSTALL
-		$ cd /oligofishing
+		$ cd oligofishing
 		$ make
 	
 2.RUN
