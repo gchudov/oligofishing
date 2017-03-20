@@ -8,7 +8,7 @@
 
 This script allows to perform large scale nucleotide sequence matching. It accepts and outputs files in FASTA format. 
 
-The best application of oligofishing script is to match large number of short oligonucleotides (primes) against large set of sequences (usually NextGen sequencing data).
+The best application of oligofishing script is to match large number of short oligonucleotides (primers) against large set of sequences (usually NextGen sequencing data).
 It is advised to do matching against set of relatively short sequences (100bp - 1000bp) as script will not output the matching region of the sequence but only its name.  
 
 1.INSTALL
