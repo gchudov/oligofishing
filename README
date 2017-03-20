@@ -1,0 +1,29 @@
+
+########################################################
+########################################################
+################# OLIGOFISHING #########################
+########################################################
+########################################################
+
+
+This script allows to perform large scale nucleotide sequence matching. It accepts and outputs files in FASTA format. 
+
+The best application of oligofishing script is to match large number of short oligonucleotides (primes) against large set of sequences (usually NextGen sequencing data).
+It is advised to do matching against set of relatively short sequences (100bp - 1000bp) as script will not output the matching region of the sequence but only its name.  
+
+1.INSTALL
+	$ cd /oligofishing
+	$ make
+	
+2.RUN
+
+		oligofishing -h hooks.fasta -p pond_NGS.fasta > out.fasta
+
+Matching (fishing) is done with two FASTA files, hooks (-h, --hook) and pond (-p, --pond). 
+"Hooks" are sequences that will be matched against every sequence in "Pond" file. 
+OUTPUT: Those sequences in the "Pond" which have regions with perfect match to one of the "Hooks" will go in output FASTA file. 
+Name of each sequence in output FASTA file is the combination of the name of the sequence from "Pond" and the name of the "Hook" it was fished out with, separated by '|' character. 
+Name example: ">pond_seq_1|hook_seq_1"
+
+
+
