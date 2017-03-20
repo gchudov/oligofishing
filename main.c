@@ -121,7 +121,7 @@ int parse_pond(fasta_item* item)
                 int part_len = (off_next & buf_mask) > ((off_next - wnd) & buf_mask) ?
                     wnd : buf_mask + 1 - ((off_next - wnd) & buf_mask);
                 if (memcmp(p->seq, buf + ((off_next - wnd) & buf_mask), part_len) || memcmp(p->seq + part_len, buf, wnd - part_len))
-                    break;
+                    continue;
                 while (next < last)
                 {
                     uint8_t c = *(next++);
